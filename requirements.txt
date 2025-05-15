@@ -1,0 +1,9 @@
+transformers
+detoxify
+pytesseract
+pdfplumber
+pandas
+opencv-python
+spacy
+presidio-analyzer
+presidio-anonymizer

@@ -1,0 +1,1 @@
+# Code to extract text from images using OCR (pytesseract)
