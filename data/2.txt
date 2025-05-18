@@ -1,0 +1,144 @@
+class CustomHuggingFaceLLM(LLM):
+    model : Optional[Any]=None
+    tokenizer : Optional[Any]=None
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+
+    def __init__(self, model_path:str, **kwargs):
+        super().__init__(**kwargs)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16 if self.device=="cuda" else torch.float32,
+            device_map="auto"
+            )
+        self.model.eval()
+
+        # Explicitly set pad_token to avoid using eos_token_id as padding
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id=self.tokenizer.eos_token_id
+            self.tokenizer.pad_token=self.tokenizer.eos_token
+    
+    @property
+    def _llm_type(self) -> str :
+        return "custom_huggingface_llm"
+    
+    def _call(
+        self,
+        prompt:str,
+        stop:Optional[List[str]]=None,
+        run_manager:Optional[CallbackManagerForLLMRun]=None,
+        **kwargs
+        ) -> str:
+        
+        inputs=self.tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, return_attention_mask=True).to(self.device)
+        input_length=inputs["input_ids"].shape[1]
+        generate_kwargs={
+            # "max_length":kwargs.get("max_length",512),
+            "max_new_tokens":kwargs.get("max_new_tokens",512),
+            "num_return_sequences":1,
+            "do_sample":True,
+            "top_k":50,
+            "top_p":0.95,
+            "temperature":kwargs.get("temperature",0.9),
+            "pad_token_id":self.tokenizer.pad_token_id,
+            "eos_token_id":self.tokenizer.eos_token_id,
+            "no_repeat_ngram_size":2,
+            "min_length":1,
+        }
+
+        generate_kwargs.update(kwargs)
+
+        stopping_criteria=None
+        if stop:
+            stop_token_ids=[]
+            for stop_token in stop:
+                token_ids = self.tokenizer.encode(stop_token, add_special_tokens=False)
+                if token_ids:
+                    stop_token_ids.extend(token_ids)
+            if stop_token_ids:
+                stopping_criteria=StoppingCriteriaList([StopOnTokens(stop_token_ids)])
+                generate_kwargs["stopping_criteria"]=stopping_criteria
+
+        try:
+            outputs = self.model.generate(
+                inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+                **generate_kwargs
+            )
+
+            generated_tokens=outputs[0,input_length:]
+            generated_text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+            if stop and not stopping_criteria:
+                for stop_token in stop:
+                    generated_text=generated_text.split(stop_token)[0]
+            generated_text=generated_text.replace("assistant","").strip()
+            return generated_text
+
+        except Exception as e:
+            print(f"Generation error : {e}")
+            return ""   
+    
+    async def _astream(
+        self,
+        prompt:str,
+        stop:Optional[List[str]]=None,
+        run_manager:Optional[CallbackManagerForLLMRun]=None,
+        **kwargs
+    )-> AsyncIterator[str] :
+
+        inputs = self.tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(self.device)
+        input_length = inputs["input_ids"].shape[1]
+
+        generate_kwargs={
+            # "max_length":kwargs.get("max_length",512),
+            "max_new_tokens":kwargs.get("max_new_tokens",512),
+            "do_sample":True,
+            "top_k":50,
+            "top_p":0.95,
+            "temperature":0.9,
+            "pad_token_id":self.tokenizer.pad_token_id,
+            "no_repeat_ngram_size":2,
+            "min_length":1,
+        }
+
+        generate_kwargs.update(kwargs)
+
+        for token in self.model.generate(
+            inputs["input_ids"],
+            attention_mask=inputs.get("attention_mask"),
+            **generate_kwargs
+        ):
+            generated_tokens = token[input_length: ]
+            chunk=self.tokenizer.decode(genrated_tokens, skip_special_tokens=True)
+            chunk = chunk.replace("assistant","").strip()
+            if stop and any(stop_token in chunk for stop_token in stop):
+                break
+            if run_manager:
+                await run_manager.on_llm_new_token(chunk)
+            yield chunk
+
+    @property
+    def _identyfying_params(self) -> Dict[str,Any]:
+        return {
+            "model_path":self.model.config._name_or_path if self.model else "unknown",
+            "device":self.device,
+        }
+
+
+    def stream(self,input:str, config:Optional[RunnableConfig]=None,**kwargs) -> Any:
+        async def stream_generator():
+            async for chunk in self._astream(input,**kwargs):
+                yield GenerationChunk(text=chunk)
+
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            raise RuntimeError("cannot call steam from a running event loop.")
+        else:
+            return loop.run_until_complete(self._to_sync_gen(stream_generator()))
+    
+    async def _to_sync_gen(self,async_gen):
+        result=[]
+        async for item in async_gen:
+            result.append(item)
+        for item in result:
+            yield item
