@@ -55,10 +55,12 @@ class CustomHuggingFaceLLM(LLM):
                 react_prompt = self._create_react_prompt(prompt)
                 text = self._call(react_prompt, stop=stop, run_manager=run_manager, **kwargs)
                 parsed_output = self._parse_react_output(text, prompt)
-                # Return JSON string in Generation
+                # Debug: Print the parsed output
+                print(f"DEBUG: Parsed output for prompt '{prompt}': {json.dumps(parsed_output)}")
                 generations.append([Generation(text=json.dumps(parsed_output))])
             except Exception as e:
                 error_output = {"action": "python", "action_input": f"print('Error: {str(e)}')"}
+                print(f"DEBUG: Error in _generate: {str(e)}")
                 generations.append([Generation(text=json.dumps(error_output))])
         return LLMResult(generations=generations)
 
@@ -120,6 +122,7 @@ class CustomHuggingFaceLLM(LLM):
                 for stop_token in stop:
                     generated_text = generated_text.split(stop_token)[0]
             generated_text = generated_text.replace("assistant", "").strip()
+            print(f"DEBUG: Generated text: {generated_text}")
             return generated_text or json.dumps({"action": "python", "action_input": "print('No output generated')"})
         except Exception as e:
             return json.dumps({"action": "python", "action_input": f"print('Error during generation: {str(e)}')"})
@@ -171,11 +174,14 @@ class CustomHuggingFaceLLM(LLM):
                     if stop and any(stop_token in chunk for stop_token in stop):
                         break
                     parsed_chunk = self._parse_react_output(chunk, prompt)
+                    print(f"DEBUG: Streaming chunk: {json.dumps(parsed_chunk)}")
                     if run_manager:
                         await run_manager.on_llm_new_token(json.dumps(parsed_chunk))
                     yield json.dumps(parsed_chunk)
         except Exception as e:
-            yield json.dumps({"action": "python", "action_input": f"print('Error during streaming: {str(e)}')"})
+            error_output = {"action": "python", "action_input": f"print('Error during streaming: {str(e)}')"}
+            print(f"DEBUG: Error in _astream: {str(e)}")
+            yield json.dumps(error_output)
 
     def bind_tools(self, tools: List[Dict[str, Any]], **kwargs) -> "CustomHuggingFaceLLM":
         self.tools = tools
