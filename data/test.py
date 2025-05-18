@@ -1,7 +1,22 @@
 from langchain_experimental.agents import create_csv_agent
 from custom_huggingface_llm import CustomHuggingFaceLLM
+from langchain_core.output_parsers import BaseOutputParser
 import asyncio
 import json
+
+class CustomReActOutputParser(BaseOutputParser):
+    """Custom parser to handle JSON output from CustomHuggingFaceLLM."""
+    def parse(self, text: str) -> Dict[str, Any]:
+        print(f"DEBUG: Parser received text: {text}")
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and "action" in parsed and "action_input" in parsed:
+                return parsed
+            else:
+                raise ValueError("Invalid JSON format: missing 'action' or 'action_input'")
+        except json.JSONDecodeError as e:
+            print(f"DEBUG: JSON parse error: {str(e)}")
+            return {"action": "python", "action_input": f"print('Invalid JSON output: {text}')"}
 
 async def call_csv_agent(question: str, file_path: str, stream: bool = False) -> str:
     try:
@@ -16,17 +31,20 @@ async def call_csv_agent(question: str, file_path: str, stream: bool = False) ->
         }]
         phi4_llm = phi4_llm.bind_tools(tools)
 
-        # Create the CSV agent
+        # Create the CSV agent with custom parser
         csv_agent = create_csv_agent(
             llm=phi4_llm,
             path=file_path,
             verbose=True,
             allow_dangerous_code=True,  # Required for Python REPL
+            agent_executor_kwargs={"output_parser": CustomReActOutputParser()}
         )
 
         if stream:
             # Streaming response
+            print("DEBUG: Starting streaming...")
             async for chunk in csv_agent.astream({"input": question}):
+                print(f"DEBUG: Stream chunk: {chunk}")
                 if isinstance(chunk, dict) and "output" in chunk:
                     print(chunk["output"], end="", flush=True)
                 elif isinstance(chunk, dict):
@@ -36,7 +54,9 @@ async def call_csv_agent(question: str, file_path: str, stream: bool = False) ->
             return ""
         else:
             # Non-streaming response using ainvoke
+            print("DEBUG: Starting non-streaming...")
             response = await csv_agent.ainvoke({"input": question})
+            print(f"DEBUG: Non-streaming response: {response}")
             if isinstance(response, dict) and "output" in response:
                 return response["output"]
             elif isinstance(response, dict):
@@ -44,6 +64,7 @@ async def call_csv_agent(question: str, file_path: str, stream: bool = False) ->
             else:
                 return str(response)
     except Exception as e:
+        print(f"DEBUG: Error in call_csv_agent: {str(e)}")
         return f"Error: {str(e)}"
 
 if __name__ == "__main__":
