@@ -1,3 +1,11 @@
+python main.py 
+Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.47it/s]
+which: no ccache in (/exacto/abhishek/exactoenv2/bin:/usr/local/cuda/bin:/home/vncuser/.local/bin:/home/vncuser/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin)
+/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/paddle/utils/cpp_extension/extension_utils.py:711: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+/exacto/abhishek/responsible_ai/data/csv/us-500.csv check atleast i'm here or not
+
+
 > Entering new AgentExecutor chain...
 Traceback (most recent call last):
   File "/exacto/abhishek/responsible_ai/src/main.py", line 26, in <module>
@@ -49,13 +57,23 @@ Traceback (most recent call last):
     yield from self.bound.transform(
   File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 1437, in transform
     yield from self.stream(final, config, **kwargs)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/responsible_ai/src/llm/phi4_wrapper.py", line 155, in stream
-    return loop.run_until_complete(self._to_sync_gen(stream_generator()))
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib64/python3.12/asyncio/base_events.py", line 666, in run_until_complete
-    future = tasks.ensure_future(future, loop=self)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib64/python3.12/asyncio/tasks.py", line 689, in ensure_future
-    raise TypeError('An asyncio.Future, a coroutine or an awaitable '
-TypeError: An asyncio.Future, a coroutine or an awaitable is required
+  File "/exacto/abhishek/responsible_ai/src/llm/phi4_wrapper.py", line 161, in stream
+    items=loop.run_until_complete(run_and_collect())
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/responsible_ai/src/llm/phi4_wrapper.py", line 153, in run_and_collect
+    async for item in stream_generator():
+  File "/exacto/abhishek/responsible_ai/src/llm/phi4_wrapper.py", line 148, in stream_generator
+    async for chunk in self._astream(input,**kwargs):
+  File "/exacto/abhishek/responsible_ai/src/llm/phi4_wrapper.py", line 107, in _astream
+    inputs = self.tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(self.device)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/transformers/tokenization_utils_base.py", line 2887, in __call__
+    encodings = self._call_one(text=text, text_pair=text_pair, **all_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/transformers/tokenization_utils_base.py", line 2947, in _call_one
+    raise ValueError(
+ValueError: text input must be of type `str` (single example), `List[str]` (batch or single pretokenized example) or `List[List[str]]` (batch of pretokenized examples).
+(exactoenv2) [vncuser@AZRVM-7588-1 src]$ 
