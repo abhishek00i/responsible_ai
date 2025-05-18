@@ -55,10 +55,11 @@ class CustomHuggingFaceLLM(LLM):
                 react_prompt = self._create_react_prompt(prompt)
                 text = self._call(react_prompt, stop=stop, run_manager=run_manager, **kwargs)
                 parsed_output = self._parse_react_output(text, prompt)
-                # Return the parsed dictionary directly, not as a JSON string
-                generations.append([Generation(text=parsed_output)])
+                # Return JSON string in Generation
+                generations.append([Generation(text=json.dumps(parsed_output))])
             except Exception as e:
-                generations.append([Generation(text={"action": "python", "action_input": f"print('Error: {str(e)}')"})])
+                error_output = {"action": "python", "action_input": f"print('Error: {str(e)}')"}
+                generations.append([Generation(text=json.dumps(error_output))])
         return LLMResult(generations=generations)
 
     def _call(
@@ -129,9 +130,9 @@ class CustomHuggingFaceLLM(LLM):
         stop: Optional[List[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs
-    ) -> AsyncIterator[Dict[str, Any]]:
+    ) -> AsyncIterator[str]:
         if not prompt or not isinstance(prompt, str):
-            yield {"action": "python", "action_input": "print('Invalid prompt')"}
+            yield json.dumps({"action": "python", "action_input": "print('Invalid prompt')"})
             return
 
         react_prompt = self._create_react_prompt(prompt)
@@ -172,9 +173,9 @@ class CustomHuggingFaceLLM(LLM):
                     parsed_chunk = self._parse_react_output(chunk, prompt)
                     if run_manager:
                         await run_manager.on_llm_new_token(json.dumps(parsed_chunk))
-                    yield parsed_chunk
+                    yield json.dumps(parsed_chunk)
         except Exception as e:
-            yield {"action": "python", "action_input": f"print('Error during streaming: {str(e)}')"}
+            yield json.dumps({"action": "python", "action_input": f"print('Error during streaming: {str(e)}')"})
 
     def bind_tools(self, tools: List[Dict[str, Any]], **kwargs) -> "CustomHuggingFaceLLM":
         self.tools = tools
