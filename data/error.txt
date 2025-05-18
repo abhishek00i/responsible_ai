@@ -1,83 +1,12 @@
-python main.py 
-Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.40it/s]
-which: no ccache in (/exacto/abhishek/exactoenv2/bin:/usr/local/cuda/bin:/home/vncuser/.local/bin:/home/vncuser/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin)
-/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/paddle/utils/cpp_extension/extension_utils.py:711: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
-  warnings.warn(warning_message)
-/exacto/abhishek/responsible_ai/data/csv/us-500.csv check atleast i'm here or not
+python test.py 
+Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.47it/s]
+/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_experimental/agents/agent_toolkits/pandas/base.py:283: UserWarning: Received additional kwargs {'handle_parsing_errors': True} which are no longer supported.
+  warnings.warn(
+/exacto/abhishek/responsible_ai/src/llm/test.py:27: LangChainDeprecationWarning: The method `Chain.run` was deprecated in langchain 0.1.0 and will be removed in 1.0. Use :meth:`~invoke` instead.
+  response = csv_agent.run(question)
 
 
 > Entering new AgentExecutor chain...
-Traceback (most recent call last):
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1354, in _iter_next_step
-    output = self._action_agent.plan(
-             ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 461, in plan
-    for chunk in self.runnable.stream(inputs, config={"callbacks": callbacks}):
-                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 3424, in stream
-    yield from self.transform(iter([input]), config, **kwargs)
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 3410, in transform
-    yield from self._transform_stream_with_config(
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 2205, in _transform_stream_with_config
-    chunk: Output = context.run(next, iterator)
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 3372, in _transform
-    yield from final_pipeline
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 1437, in transform
-    yield from self.stream(final, config, **kwargs)
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 1004, in stream
-    yield self.invoke(input, config, **kwargs)
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/output_parsers/base.py", line 204, in invoke
-    return self._call_with_config(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 1930, in _call_with_config
-    context.run(
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/config.py", line 428, in call_func_with_variable_args
-    return func(input, **kwargs)  # type: ignore[call-arg]
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/output_parsers/base.py", line 205, in <lambda>
-    lambda inner_input: self.parse_result([Generation(text=inner_input)]),
-                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/output_parsers/base.py", line 250, in parse_result
-    return self.parse(result[0].text)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/output_parsers/react_single_input.py", line 75, in parse
-    raise OutputParserException(
-langchain_core.exceptions.OutputParserException: Could not parse LLM output: `{"action": "python", "action_input": "print('```markdown')"}`
+Response: Error: An output parsing error occurred. In order to pass this error back to the agent and have it try again, pass `handle_parsing_errors=True` to the AgentExecutor. This is the error: Could not parse LLM output: `{"action": "python", "action_input": "import pandas as pd\ndf = pd.read_csv('us-500.csv')\nprint(result)"}`
 For troubleshooting, visit: https://python.langchain.com/docs/troubleshooting/errors/OUTPUT_PARSING_FAILURE 
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/exacto/abhishek/responsible_ai/src/main.py", line 26, in <module>
-    response = call_csv_agent(question,FILE_PATH)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/responsible_ai/src/llm/llm_handler.py", line 58, in call_csv_agent
-    response = csv_agent.run(question)
-               ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/_api/deprecation.py", line 191, in warning_emitting_wrapper
-    return wrapped(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 603, in run
-    return self(args[0], callbacks=callbacks, tags=tags, metadata=metadata)[
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/_api/deprecation.py", line 191, in warning_emitting_wrapper
-    return wrapped(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 386, in __call__
-    return self.invoke(
-           ^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 167, in invoke
-    raise e
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 157, in invoke
-    self._call(inputs, run_manager=run_manager)
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1620, in _call
-    next_step_output = self._take_next_step(
-                       ^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1326, in _take_next_step
-    [
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1365, in _iter_next_step
-    raise ValueError(
-ValueError: An output parsing error occurred. In order to pass this error back to the agent and have it try again, pass `handle_parsing_errors=True` to the AgentExecutor. This is the error: Could not parse LLM output: `{"action": "python", "action_input": "print('```markdown')"}`
-For troubleshooting, visit: https://python.langchain.com/docs/troubleshooting/errors/OUTPUT_PARSING_FAILURE 
+(exactoenv2) [vncuser@AZRVM-7588-1 llm]$ 
