@@ -1,5 +1,4 @@
-python main.py 
-Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.46it/s]
+Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.38it/s]
 which: no ccache in (/exacto/abhishek/exactoenv2/bin:/usr/local/cuda/bin:/home/vncuser/.local/bin:/home/vncuser/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin)
 /exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/paddle/utils/cpp_extension/extension_utils.py:711: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
   warnings.warn(warning_message)
@@ -36,7 +35,43 @@ Traceback (most recent call last):
                        ^^^^^^^^^^^^^^^^^^^^^
   File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1326, in _take_next_step
     [
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1408, in _iter_next_step
-    for agent_action in actions:
-                        ^^^^^^^
-TypeError: 'NoneType' object is not iterable
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1354, in _iter_next_step
+    output = self._action_agent.plan(
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 461, in plan
+    for chunk in self.runnable.stream(inputs, config={"callbacks": callbacks}):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 3424, in stream
+    yield from self.transform(iter([input]), config, **kwargs)
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 3410, in transform
+    yield from self._transform_stream_with_config(
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 2205, in _transform_stream_with_config
+    chunk: Output = context.run(next, iterator)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 3372, in _transform
+    yield from final_pipeline
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 1437, in transform
+    yield from self.stream(final, config, **kwargs)
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 1004, in stream
+    yield self.invoke(input, config, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/output_parsers/base.py", line 204, in invoke
+    return self._call_with_config(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/base.py", line 1930, in _call_with_config
+    context.run(
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/runnables/config.py", line 428, in call_func_with_variable_args
+    return func(input, **kwargs)  # type: ignore[call-arg]
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/output_parsers/base.py", line 205, in <lambda>
+    lambda inner_input: self.parse_result([Generation(text=inner_input)]),
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/load/serializable.py", line 130, in __init__
+    super().__init__(*args, **kwargs)
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/pydantic/main.py", line 253, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for Generation
+text
+  Input should be a valid string [type=string_type, input_value=GenerationChunk(text='Tho...ber is: 120\n\nThought'), input_type=GenerationChunk]
+    For further information visit https://errors.pydantic.dev/2.11/v/string_type
