@@ -55,9 +55,10 @@ class CustomHuggingFaceLLM(LLM):
                 react_prompt = self._create_react_prompt(prompt)
                 text = self._call(react_prompt, stop=stop, run_manager=run_manager, **kwargs)
                 parsed_output = self._parse_react_output(text, prompt)
-                generations.append([Generation(text=json.dumps(parsed_output))])
+                # Return the parsed dictionary directly, not as a JSON string
+                generations.append([Generation(text=parsed_output)])
             except Exception as e:
-                generations.append([Generation(text=f"Error: {str(e)}")])
+                generations.append([Generation(text={"action": "python", "action_input": f"print('Error: {str(e)}')"})])
         return LLMResult(generations=generations)
 
     def _call(
@@ -68,7 +69,7 @@ class CustomHuggingFaceLLM(LLM):
         **kwargs
     ) -> str:
         if not prompt or not isinstance(prompt, str):
-            return '{"action": "python", "action_input": "print(\'Invalid prompt\')"}'
+            return json.dumps({"action": "python", "action_input": "print('Invalid prompt')"})
 
         inputs = self.tokenizer(
             prompt,
@@ -118,9 +119,9 @@ class CustomHuggingFaceLLM(LLM):
                 for stop_token in stop:
                     generated_text = generated_text.split(stop_token)[0]
             generated_text = generated_text.replace("assistant", "").strip()
-            return generated_text or '{"action": "python", "action_input": "print(\'No output generated\')"}'
+            return generated_text or json.dumps({"action": "python", "action_input": "print('No output generated')"})
         except Exception as e:
-            return f'{{"action": "python", "action_input": "print(\'Error during generation: {str(e)}\')"}}'
+            return json.dumps({"action": "python", "action_input": f"print('Error during generation: {str(e)}')"})
 
     async def _astream(
         self,
@@ -128,9 +129,9 @@ class CustomHuggingFaceLLM(LLM):
         stop: Optional[List[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[Dict[str, Any]]:
         if not prompt or not isinstance(prompt, str):
-            yield '{"action": "python", "action_input": "print(\'Invalid prompt\')"}'
+            yield {"action": "python", "action_input": "print('Invalid prompt')"}
             return
 
         react_prompt = self._create_react_prompt(prompt)
@@ -171,9 +172,9 @@ class CustomHuggingFaceLLM(LLM):
                     parsed_chunk = self._parse_react_output(chunk, prompt)
                     if run_manager:
                         await run_manager.on_llm_new_token(json.dumps(parsed_chunk))
-                    yield json.dumps(parsed_chunk)
+                    yield parsed_chunk
         except Exception as e:
-            yield f'{{"action": "python", "action_input": "print(\'Error during streaming: {str(e)}\')"}}'
+            yield {"action": "python", "action_input": f"print('Error during streaming: {str(e)}')"}
 
     def bind_tools(self, tools: List[Dict[str, Any]], **kwargs) -> "CustomHuggingFaceLLM":
         self.tools = tools
