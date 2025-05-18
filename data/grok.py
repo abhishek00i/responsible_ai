@@ -1,9 +1,8 @@
 import torch
-from typing import Optional, List, Dict, Any, AsyncIterator, Union
+from typing import Optional, List, Dict, Any, AsyncIterator
 from langchain_core.language_models import LLM
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.outputs import Generation, LLMResult
-from langchain_core.messages import BaseMessage, AIMessage
 from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
 import json
 import re
@@ -53,10 +52,9 @@ class CustomHuggingFaceLLM(LLM):
         generations = []
         for prompt in prompts:
             try:
-                # Wrap prompt with ReAct format
                 react_prompt = self._create_react_prompt(prompt)
                 text = self._call(react_prompt, stop=stop, run_manager=run_manager, **kwargs)
-                parsed_output = self._parse_react_output(text)
+                parsed_output = self._parse_react_output(text, prompt)
                 generations.append([Generation(text=json.dumps(parsed_output))])
             except Exception as e:
                 generations.append([Generation(text=f"Error: {str(e)}")])
@@ -70,13 +68,14 @@ class CustomHuggingFaceLLM(LLM):
         **kwargs
     ) -> str:
         if not prompt or not isinstance(prompt, str):
-            return ""
+            return '{"action": "python", "action_input": "print(\'Invalid prompt\')"}'
 
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
             padding=True,
             truncation=True,
+            max_length=512,
             return_attention_mask=True
         ).to(self.device)
         input_length = inputs["input_ids"].shape[1]
@@ -87,7 +86,7 @@ class CustomHuggingFaceLLM(LLM):
             "do_sample": True,
             "top_k": 50,
             "top_p": 0.95,
-            "temperature": kwargs.get("temperature", 0.9),
+            "temperature": kwargs.get("temperature", 0.7),
             "pad_token_id": self.tokenizer.pad_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
             "no_repeat_ngram_size": 2,
@@ -119,9 +118,9 @@ class CustomHuggingFaceLLM(LLM):
                 for stop_token in stop:
                     generated_text = generated_text.split(stop_token)[0]
             generated_text = generated_text.replace("assistant", "").strip()
-            return generated_text
+            return generated_text or '{"action": "python", "action_input": "print(\'No output generated\')"}'
         except Exception as e:
-            return f"Error during generation: {str(e)}"
+            return f'{{"action": "python", "action_input": "print(\'Error during generation: {str(e)}\')"}}'
 
     async def _astream(
         self,
@@ -131,7 +130,7 @@ class CustomHuggingFaceLLM(LLM):
         **kwargs
     ) -> AsyncIterator[str]:
         if not prompt or not isinstance(prompt, str):
-            yield ""
+            yield '{"action": "python", "action_input": "print(\'Invalid prompt\')"}'
             return
 
         react_prompt = self._create_react_prompt(prompt)
@@ -140,6 +139,7 @@ class CustomHuggingFaceLLM(LLM):
             return_tensors="pt",
             padding=True,
             truncation=True,
+            max_length=512,
             return_attention_mask=True
         ).to(self.device)
         input_length = inputs["input_ids"].shape[1]
@@ -149,7 +149,7 @@ class CustomHuggingFaceLLM(LLM):
             "do_sample": True,
             "top_k": 50,
             "top_p": 0.95,
-            "temperature": kwargs.get("temperature", 0.9),
+            "temperature": kwargs.get("temperature", 0.7),
             "pad_token_id": self.tokenizer.pad_token_id,
             "no_repeat_ngram_size": 2,
             "min_length": 1,
@@ -168,12 +168,12 @@ class CustomHuggingFaceLLM(LLM):
                     chunk = chunk.replace("assistant", "").strip()
                     if stop and any(stop_token in chunk for stop_token in stop):
                         break
-                    parsed_chunk = self._parse_react_output(chunk)
+                    parsed_chunk = self._parse_react_output(chunk, prompt)
                     if run_manager:
                         await run_manager.on_llm_new_token(json.dumps(parsed_chunk))
                     yield json.dumps(parsed_chunk)
         except Exception as e:
-            yield f"Error during streaming: {str(e)}"
+            yield f'{{"action": "python", "action_input": "print(\'Error during streaming: {str(e)}\')"}}'
 
     def bind_tools(self, tools: List[Dict[str, Any]], **kwargs) -> "CustomHuggingFaceLLM":
         self.tools = tools
@@ -183,52 +183,86 @@ class CustomHuggingFaceLLM(LLM):
         tool_desc = "\n".join(
             f"- {tool.get('name')}: {tool.get('description', '')}"
             for tool in self.tools
-        ) if self.tools else "Python REPL: Execute Python code to process CSV data."
-        
-        react_template = f"""You are an agent that processes CSV data using a ReAct (Reasoning and Acting) approach. For the given query, provide a response in the following JSON format:
+        ) if self.tools else "Python REPL: Execute Python code to process CSV data using pandas."
+
+        react_template = f"""You are an AI assistant tasked with processing CSV data using a ReAct (Reasoning and Acting) approach. For the given query, provide a response in the following JSON format:
 
 ```json
 {{
   "action": "python",
-  "action_input": "<Python code or query result>"
+  "action_input": "<Python code to process the CSV or direct answer>"
 }}
 ```
 
 Available tools:
 {tool_desc}
 
+CSV file: 'us-500.csv' (contains columns like 'first_name', 'last_name', etc.)
+
 Query: {prompt}
 
-Follow these steps:
-1. Reason about the query.
-2. If the query requires data processing, write Python code to execute in the Python REPL.
-3. If the query is a simple question, provide the answer directly in action_input.
-4. Ensure the output is valid JSON with 'action' and 'action_input' fields.
+Instructions:
+1. Analyze the query to determine if it requires data processing or a direct answer.
+2. For data processing, write Python code using pandas to read and query 'us-500.csv'.
+3. For simple questions, provide the answer directly in action_input.
+4. Ensure the output is valid JSON with 'action' set to 'python' and 'action_input' containing executable Python code or a string answer.
+5. Use pandas for CSV operations (e.g., df = pd.read_csv('us-500.csv')).
+6. If the query involves filtering, sorting, or aggregating, write precise pandas code.
+7. Escape any special characters in the action_input to ensure valid JSON.
+
+Example:
+Query: "Select rows where first_name is James"
+Response: {{"action": "python", "action_input": "import pandas as pd\\ndf = pd.read_csv('us-500.csv')\\nresult = df[df['first_name'] == 'James']\\nprint(result)"}} 
 
 Response:
 """
         return react_template
 
-    def _parse_react_output(self, text: str) -> Dict[str, Any]:
+    def _parse_react_output(self, text: str, original_prompt: str) -> Dict[str, Any]:
         # Try to parse as JSON
         try:
-            return json.loads(text)
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and "action" in parsed and "action_input" in parsed:
+                return parsed
         except json.JSONDecodeError:
-            # Fallback: Extract action and action_input using regex
-            action_match = re.search(r'"action"\s*:\s*"([^"]+)"', text)
-            action_input_match = re.search(r'"action_input"\s*:\s*"([^"]+)"', text)
-            
-            if action_match and action_input_match:
-                return {
-                    "action": action_match.group(1),
-                    "action_input": action_input_match.group(1)
-                }
-            
-            # If parsing fails, return a default Python action
+            pass
+
+        # Regex fallback for JSON-like structure
+        action_match = re.search(r'"action"\s*:\s*"([^"]+)"', text)
+        action_input_match = re.search(r'"action_input"\s*:\s*"([^"]+)"', text)
+
+        if action_match and action_input_match:
             return {
-                "action": "python",
-                "action_input": f"print('{text}')"
+                "action": action_match.group(1),
+                "action_input": action_input_match.group(1).replace("\\", "")
             }
+
+        # Fallback: Generate pandas code based on the query
+        if "select" in original_prompt.lower() and "where" in original_prompt.lower():
+            # Extract conditions from the query
+            conditions = original_prompt.lower()
+            first_name = None
+            last_name = None
+            if "first_name is" in conditions:
+                first_name = conditions.split("first_name is")[1].split("and")[0].strip().strip("'\"")
+            if "last_name contains" in conditions:
+                last_name = conditions.split("last_name contains")[1].strip().strip("'\"")
+
+            code = "import pandas as pd\ndf = pd.read_csv('us-500.csv')\n"
+            if first_name and last_name:
+                code += f"result = df[(df['first_name'] == '{first_name}') & (df['last_name'].str.contains('{last_name}', case=False))]\n"
+            elif first_name:
+                code += f"result = df[df['first_name'] == '{first_name}']\n"
+            elif last_name:
+                code += f"result = df[df['last_name'].str.contains('{last_name}', case=False)]\n"
+            code += "print(result)"
+            return {"action": "python", "action_input": code}
+
+        # Ultimate fallback
+        return {
+            "action": "python",
+            "action_input": f"print('Unable to process query: {original_prompt}')"
+        }
 
     @property
     def _identifying_params(self) -> Dict[str, Any]:
@@ -239,7 +273,6 @@ Response:
             "tools": [tool.get("name") for tool in self.tools]
         }
 
-# Example instantiation
 if __name__ == "__main__":
     model_path = "/exacto/abhishek/responsible_ai/models"
     try:
