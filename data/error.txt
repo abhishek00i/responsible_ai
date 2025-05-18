@@ -1,4 +1,5 @@
-Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.38it/s]
+python main.py 
+Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.45it/s]
 which: no ccache in (/exacto/abhishek/exactoenv2/bin:/usr/local/cuda/bin:/home/vncuser/.local/bin:/home/vncuser/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin)
 /exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/paddle/utils/cpp_extension/extension_utils.py:711: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
   warnings.warn(warning_message)
@@ -6,35 +7,7 @@ which: no ccache in (/exacto/abhishek/exactoenv2/bin:/usr/local/cuda/bin:/home/v
 
 
 > Entering new AgentExecutor chain...
-<class 'langchain_core.prompt_values.StringPromptValue'> ggfdghiiu678909876546789@@@@@@@@@@@
 Traceback (most recent call last):
-  File "/exacto/abhishek/responsible_ai/src/main.py", line 26, in <module>
-    response = call_csv_agent(question,FILE_PATH)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/responsible_ai/src/llm/llm_handler.py", line 44, in call_csv_agent
-    response = csv_agent.run(question)
-               ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/_api/deprecation.py", line 191, in warning_emitting_wrapper
-    return wrapped(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 603, in run
-    return self(args[0], callbacks=callbacks, tags=tags, metadata=metadata)[
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/_api/deprecation.py", line 191, in warning_emitting_wrapper
-    return wrapped(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 386, in __call__
-    return self.invoke(
-           ^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 167, in invoke
-    raise e
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 157, in invoke
-    self._call(inputs, run_manager=run_manager)
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1620, in _call
-    next_step_output = self._take_next_step(
-                       ^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1326, in _take_next_step
-    [
   File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1354, in _iter_next_step
     output = self._action_agent.plan(
              ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -65,13 +38,55 @@ Traceback (most recent call last):
            ^^^^^^^^^^^^^^^^^^^^^
   File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/output_parsers/base.py", line 205, in <lambda>
     lambda inner_input: self.parse_result([Generation(text=inner_input)]),
-                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/load/serializable.py", line 130, in __init__
-    super().__init__(*args, **kwargs)
-  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/pydantic/main.py", line 253, in __init__
-    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-pydantic_core._pydantic_core.ValidationError: 1 validation error for Generation
-text
-  Input should be a valid string [type=string_type, input_value=GenerationChunk(text='Tho...ber is: 120\n\nThought'), input_type=GenerationChunk]
-    For further information visit https://errors.pydantic.dev/2.11/v/string_type
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/output_parsers/base.py", line 250, in parse_result
+    return self.parse(result[0].text)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/output_parsers/react_single_input.py", line 75, in parse
+    raise OutputParserException(
+langchain_core.exceptions.OutputParserException: Could not parse LLM output: `Thought:
+
+## Solution 01
+
+Question 00: Select the row where the first name is James and the last name contains Butt`
+For troubleshooting, visit: https://python.langchain.com/docs/troubleshooting/errors/OUTPUT_PARSING_FAILURE 
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/exacto/abhishek/responsible_ai/src/main.py", line 26, in <module>
+    response = call_csv_agent(question,FILE_PATH)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/responsible_ai/src/llm/llm_handler.py", line 58, in call_csv_agent
+    response = csv_agent.run(question)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/_api/deprecation.py", line 191, in warning_emitting_wrapper
+    return wrapped(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 603, in run
+    return self(args[0], callbacks=callbacks, tags=tags, metadata=metadata)[
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain_core/_api/deprecation.py", line 191, in warning_emitting_wrapper
+    return wrapped(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 386, in __call__
+    return self.invoke(
+           ^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 167, in invoke
+    raise e
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/chains/base.py", line 157, in invoke
+    self._call(inputs, run_manager=run_manager)
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1620, in _call
+    next_step_output = self._take_next_step(
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1326, in _take_next_step
+    [
+  File "/exacto/abhishek/exactoenv2/lib64/python3.12/site-packages/langchain/agents/agent.py", line 1365, in _iter_next_step
+    raise ValueError(
+ValueError: An output parsing error occurred. In order to pass this error back to the agent and have it try again, pass `handle_parsing_errors=True` to the AgentExecutor. This is the error: Could not parse LLM output: `Thought:
+
+## Solution 01
+
+Question 00: Select the row where the first name is James and the last name contains Butt`
+For troubleshooting, visit: https://python.langchain.com/docs/troubleshooting/errors/OUTPUT_PARSING_FAILURE 
+(exactoenv2) [vncuser@AZRVM-7588-1 src]$ 
