@@ -3,10 +3,10 @@ from typing import Optional, List, Dict, Any, AsyncIterator, Union
 from langchain_core.language_models import LLM
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.outputs import Generation, LLMResult
-from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
 from langchain_core.messages import BaseMessage, AIMessage
-import uuid
+from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
 import json
+import re
 
 class StopOnTokens(StoppingCriteria):
     def __init__(self, stop_token_ids: List[int]):
@@ -20,6 +20,7 @@ class CustomHuggingFaceLLM(LLM):
     model: Optional[Any] = None
     tokenizer: Optional[Any] = None
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    tools: List[Dict[str, Any]] = []
 
     def __init__(self, model_path: str, **kwargs):
         super().__init__(**kwargs)
@@ -32,7 +33,6 @@ class CustomHuggingFaceLLM(LLM):
             )
             self.model.eval()
 
-            # Set pad_token to avoid using eos_token_id as padding
             if self.tokenizer.pad_token_id is None:
                 self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
                 self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -53,8 +53,11 @@ class CustomHuggingFaceLLM(LLM):
         generations = []
         for prompt in prompts:
             try:
-                text = self._call(prompt, stop=stop, run_manager=run_manager, **kwargs)
-                generations.append([Generation(text=text)])
+                # Wrap prompt with ReAct format
+                react_prompt = self._create_react_prompt(prompt)
+                text = self._call(react_prompt, stop=stop, run_manager=run_manager, **kwargs)
+                parsed_output = self._parse_react_output(text)
+                generations.append([Generation(text=json.dumps(parsed_output))])
             except Exception as e:
                 generations.append([Generation(text=f"Error: {str(e)}")])
         return LLMResult(generations=generations)
@@ -70,10 +73,10 @@ class CustomHuggingFaceLLM(LLM):
             return ""
 
         inputs = self.tokenizer(
-            prompt, 
-            return_tensors="pt", 
-            padding=True, 
-            truncation=True, 
+            prompt,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
             return_attention_mask=True
         ).to(self.device)
         input_length = inputs["input_ids"].shape[1]
@@ -104,11 +107,12 @@ class CustomHuggingFaceLLM(LLM):
                 generate_kwargs["stopping_criteria"] = stopping_criteria
 
         try:
-            outputs = self.model.generate(
-                inputs["input_ids"],
-                attention_mask=inputs.get("attention_mask"),
-                **generate_kwargs
-            )
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    inputs["input_ids"],
+                    attention_mask=inputs.get("attention_mask"),
+                    **generate_kwargs
+                )
             generated_tokens = outputs[0, input_length:]
             generated_text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
             if stop and not stopping_criteria:
@@ -130,11 +134,12 @@ class CustomHuggingFaceLLM(LLM):
             yield ""
             return
 
+        react_prompt = self._create_react_prompt(prompt)
         inputs = self.tokenizer(
-            prompt, 
-            return_tensors="pt", 
-            padding=True, 
-            truncation=True, 
+            react_prompt,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
             return_attention_mask=True
         ).to(self.device)
         input_length = inputs["input_ids"].shape[1]
@@ -152,40 +157,78 @@ class CustomHuggingFaceLLM(LLM):
         generate_kwargs.update(kwargs)
 
         try:
-            for output in self.model.generate(
-                inputs["input_ids"],
-                attention_mask=inputs.get("attention_mask"),
-                **generate_kwargs
-            ):
-                generated_tokens = output[input_length:]
-                chunk = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
-                chunk = chunk.replace("assistant", "").strip()
-                if stop and any(stop_token in chunk for stop_token in stop):
-                    break
-                if run_manager:
-                    await run_manager.on_llm_new_token(chunk)
-                yield chunk
+            with torch.no_grad():
+                for output in self.model.generate(
+                    inputs["input_ids"],
+                    attention_mask=inputs.get("attention_mask"),
+                    **generate_kwargs
+                ):
+                    generated_tokens = output[input_length:]
+                    chunk = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                    chunk = chunk.replace("assistant", "").strip()
+                    if stop and any(stop_token in chunk for stop_token in stop):
+                        break
+                    parsed_chunk = self._parse_react_output(chunk)
+                    if run_manager:
+                        await run_manager.on_llm_new_token(json.dumps(parsed_chunk))
+                    yield json.dumps(parsed_chunk)
         except Exception as e:
             yield f"Error during streaming: {str(e)}"
 
     def bind_tools(self, tools: List[Dict[str, Any]], **kwargs) -> "CustomHuggingFaceLLM":
-        """Bind tools to the LLM for structured output."""
-        tool_prompt = "Available tools:\n"
-        for tool in tools:
-            tool_prompt += f"- {tool.get('name', 'unknown')}: {tool.get('description', '')}\n"
-        self._default_params = self._default_params or {}
-        self._default_params["tool_prompt"] = tool_prompt
+        self.tools = tools
         return self
 
-    def _structured_output(self, prompt: str, **kwargs) -> Dict[str, Any]:
-        """Generate structured output for tool calls or agent responses."""
-        response = self._call(prompt, **kwargs)
+    def _create_react_prompt(self, prompt: str) -> str:
+        tool_desc = "\n".join(
+            f"- {tool.get('name')}: {tool.get('description', '')}"
+            for tool in self.tools
+        ) if self.tools else "Python REPL: Execute Python code to process CSV data."
+        
+        react_template = f"""You are an agent that processes CSV data using a ReAct (Reasoning and Acting) approach. For the given query, provide a response in the following JSON format:
+
+```json
+{{
+  "action": "python",
+  "action_input": "<Python code or query result>"
+}}
+```
+
+Available tools:
+{tool_desc}
+
+Query: {prompt}
+
+Follow these steps:
+1. Reason about the query.
+2. If the query requires data processing, write Python code to execute in the Python REPL.
+3. If the query is a simple question, provide the answer directly in action_input.
+4. Ensure the output is valid JSON with 'action' and 'action_input' fields.
+
+Response:
+"""
+        return react_template
+
+    def _parse_react_output(self, text: str) -> Dict[str, Any]:
+        # Try to parse as JSON
         try:
-            # Attempt to parse response as JSON for structured output
-            return json.loads(response)
+            return json.loads(text)
         except json.JSONDecodeError:
-            # Fallback to plain text if JSON parsing fails
-            return {"text": response}
+            # Fallback: Extract action and action_input using regex
+            action_match = re.search(r'"action"\s*:\s*"([^"]+)"', text)
+            action_input_match = re.search(r'"action_input"\s*:\s*"([^"]+)"', text)
+            
+            if action_match and action_input_match:
+                return {
+                    "action": action_match.group(1),
+                    "action_input": action_input_match.group(1)
+                }
+            
+            # If parsing fails, return a default Python action
+            return {
+                "action": "python",
+                "action_input": f"print('{text}')"
+            }
 
     @property
     def _identifying_params(self) -> Dict[str, Any]:
@@ -193,6 +236,7 @@ class CustomHuggingFaceLLM(LLM):
             "model_path": self.model.config._name_or_path if self.model else "unknown",
             "device": self.device,
             "llm_type": self._llm_type,
+            "tools": [tool.get("name") for tool in self.tools]
         }
 
 # Example instantiation
