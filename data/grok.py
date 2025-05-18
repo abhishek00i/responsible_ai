@@ -192,3 +192,97 @@ class CustomHuggingFaceLLM(LLM):
   "action": "python",
   "action_input": "<Python code to process the CSV or direct answer>"
 }}
+```
+
+Available tools:
+{tool_desc}
+
+CSV file: 'us-500.csv' (contains columns like 'first_name', 'last_name', etc.)
+
+Query: {prompt}
+
+Instructions:
+1. Analyze the query to determine if it requires data processing or a direct answer.
+2. For data processing, write Python code using pandas to read and query 'us-500.csv'.
+3. For simple questions, provide the answer directly in action_input.
+4. Ensure the output is valid JSON with 'action' set to 'python' and 'action_input' containing executable Python code or a string answer.
+5. Use pandas for CSV operations (e.g., df = pd.read_csv('us-500.csv')).
+6. If the query involves filtering, sorting, or aggregating, write precise pandas code.
+7. Escape any special characters in the action_input to ensure valid JSON.
+
+Example:
+Query: "Select rows where first_name is James"
+Response: {{"action": "python", "action_input": "import pandas as pd\\ndf = pd.read_csv('us-500.csv')\\nresult = df[df['first_name'] == 'James']\\nprint(result)"}} 
+
+Response:
+"""
+        return react_template
+
+    def _parse_react_output(self, text: str, original_prompt: str) -> Dict[str, Any]:
+        # Try to parse as JSON
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and "action" in parsed and "action_input" in parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        # Regex fallback for JSON-like structure
+        action_match = re.search(r'"action"\s*:\s*"([^"]+)"', text)
+        action_input_match = re.search(r'"action_input"\s*:\s*"([^"]+)"', text)
+
+        if action_match and action_input_match:
+            return {
+                "action": action_match.group(1),
+                "action_input": action_input_match.group(1).replace("\\", "")
+            }
+
+        # Enhanced query parsing for pandas code generation
+        code = "import pandas as pd\ndf = pd.read_csv('us-500.csv')\n"
+        conditions = []
+        if "select" in original_prompt.lower() and "where" in original_prompt.lower():
+            query_parts = original_prompt.lower().split("where")
+            if len(query_parts) > 1:
+                conditions_part = query_parts[1].strip()
+                # Split by 'and' to handle multiple conditions
+                condition_clauses = conditions_part.split("and")
+                for clause in condition_clauses:
+                    clause = clause.strip()
+                    if "first_name is" in clause or "first_name =" in clause:
+                        name = clause.split("is")[-1].strip().strip("'\"") if "is" in clause else clause.split("=")[-1].strip().strip("'\"")
+                        conditions.append(f"df['first_name'] == '{name}'")
+                    elif "last_name contains" in clause:
+                        name = clause.split("contains")[-1].strip().strip("'\"")
+                        conditions.append(f"df['last_name'].str.contains('{name}', case=False, na=False)")
+                    elif "last_name is" in clause or "last_name =" in clause:
+                        name = clause.split("is")[-1].strip().strip("'\"") if "is" in clause else clause.split("=")[-1].strip().strip("'\"")
+                        conditions.append(f"df['last_name'] == '{name}'")
+
+        if conditions:
+            condition_str = " & ".join(conditions)
+            code += f"result = df[{condition_str}]\n"
+            code += "print(result)"
+        else:
+            code += "print('Unable to parse query conditions')"
+
+        return {
+            "action": "python",
+            "action_input": code.replace("\n", "\\n")
+        }
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        return {
+            "model_path": self.model.config._name_or_path if self.model else "unknown",
+            "device": self.device,
+            "llm_type": self._llm_type,
+            "tools": [tool.get("name") for tool in self.tools]
+        }
+
+if __name__ == "__main__":
+    model_path = "/exacto/abhishek/responsible_ai/models"
+    try:
+        phi4_llm = CustomHuggingFaceLLM(model_path=model_path)
+        print("Model loaded successfully.")
+    except Exception as e:
+        print(f"Failed to load model: {str(e)}")
