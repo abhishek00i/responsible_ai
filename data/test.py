@@ -1,22 +1,7 @@
-
-### Key Changes in `custom_huggingface_llm.py`
-1. **Improved `_parse_react_output`**:
-   - Enhanced the query parsing logic to correctly handle conditions like `first_name is James` and `last_name contains Butt`.
-   - Generates valid pandas code by constructing a `result` variable before printing.
-   - Uses `str.contains` with `na=False` to handle potential NaN values in the DataFrame.
-   - Properly escapes newlines in the `action_input` to ensure valid JSON.
-2. **Maintained Streaming Support**:
-   - The `_astream` method is retained as it was, as it already supports streaming and can be used in the updated main file.
-3. **Robust Condition Parsing**:
-   - Handles multiple conditions (e.g., `first_name is James and last_name contains Butt`) by splitting on `and` and building a combined pandas condition.
-   - Supports both `is` and `=` for equality checks to make parsing more flexible.
-
-### Updated Code for `test.py` (Main File)
-
-```python
 from langchain_experimental.agents import create_csv_agent
 from custom_huggingface_llm import CustomHuggingFaceLLM
 import asyncio
+import json
 
 async def call_csv_agent(question: str, file_path: str, stream: bool = False) -> str:
     try:
@@ -42,13 +27,22 @@ async def call_csv_agent(question: str, file_path: str, stream: bool = False) ->
         if stream:
             # Streaming response
             async for chunk in csv_agent.astream({"input": question}):
-                if chunk.get("output"):
+                if isinstance(chunk, dict) and "output" in chunk:
                     print(chunk["output"], end="", flush=True)
+                elif isinstance(chunk, dict):
+                    print(json.dumps(chunk), end="", flush=True)
+                else:
+                    print(chunk, end="", flush=True)
             return ""
         else:
-            # Non-streaming response using invoke
+            # Non-streaming response using ainvoke
             response = await csv_agent.ainvoke({"input": question})
-            return response.get("output", f"Error: No output in response")
+            if isinstance(response, dict) and "output" in response:
+                return response["output"]
+            elif isinstance(response, dict):
+                return json.dumps(response)
+            else:
+                return str(response)
     except Exception as e:
         return f"Error: {str(e)}"
 
