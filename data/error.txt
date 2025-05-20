@@ -1,13 +1,35 @@
- python test.py 
-Streaming Response:
-Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.48it/s]
+from transformers import pipeline
+import torch
+
+MODEL_PATH = os.getenv("MODEL_PATH")
+
+pipeline = pipeline(
+    "text-generation",
+    model=MODEL_PATH,
+    model_kwargs={"torch_dtype": "auto"},
+    device_map="auto",
+)
+def call_llm(question): 
+        print("---> GenAI call Initiated")
+        text_data= retrieve_context(question)
+        try:
+            anonymizer = PIIAnonymizer(context = text_data, question = question)
+            text_data, question = anonymizer.main()
+        except :
+            pass
+            
+        messages=[
+            {"role": "assistant", "content": f"""You are a helpful asssistant that provide specific answer 
+            only in minimal words from the provided context of the document.
+            Note :- Extract only the requested information. Do not include any extra word or explanation."""},
+
+            {"role": "user", "content": f"""Question:{question} /nContext:{text_data}"""}
+        ]
+        outputs = pipeline(messages, max_new_tokens=128)
+        print('question--->',question)
+        responseOutput=outputs[0]["generated_text"][-1]['content']
+        print("Response--->",responseOutput)
+        return(responseOutput)
 
 
-> Entering new None chain...
 
-Non-Streaming Response:
-Loading checkpoint shards: 100%|█████████████████████████████████████████████████████████████████████████████████████| 6/6 [00:04<00:00,  1.47it/s]
-
-
-> Entering new AgentExecutor chain...
-Response: Error: 'dict' object has no attribute 'text'
