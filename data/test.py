@@ -1,81 +1,257 @@
-from langchain_experimental.agents import create_csv_agent
-from custom_huggingface_llm import CustomHuggingFaceLLM
-from langchain_core.output_parsers import BaseOutputParser
-import asyncio
-import json
+from typing import Optional, Tuple 
+import regex as re
+from nemoguardrails import LLMRails, RailsConfig
+from nemoguardrails.actions import action
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+from sentence_transformers import SentenceTransformer, util
+import numpy as np
 
-class CustomReActOutputParser(BaseOutputParser):
-    """Custom parser to handle JSON output from CustomHuggingFaceLLM."""
-    def parse(self, text: str) -> Dict[str, Any]:
-        print(f"DEBUG: Parser received text: {text}")
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, dict) and "action" in parsed and "action_input" in parsed:
-                return parsed
-            else:
-                raise ValueError("Invalid JSON format: missing 'action' or 'action_input'")
-        except json.JSONDecodeError as e:
-            print(f"DEBUG: JSON parse error: {str(e)}")
-            return {"action": "python", "action_input": f"print('Invalid JSON output: {text}')"}
+# Global variables for models
+toxicity_classifier = None
+sentence_encoder = None
 
-async def call_csv_agent(question: str, file_path: str, stream: bool = False) -> str:
+#custom action for toxicity detector
+@action(name="detect_toxicity")
+async def detect_toxicity(text: str, threshold: float = 0.5, validation_method: str = "sentence") -> bool :
+    global toxicity_classifier
     try:
-        # Instantiate the LLM
-        model_path = "/exacto/abhishek/responsible_ai/models"
-        phi4_llm = CustomHuggingFaceLLM(model_path=model_path)
+        if validation_method == "sentence" :
+            sentence = text.split(". ")
+            for sentence in sentences:
+                if not sentence.strip():
+                    continue
+                result = toxicity_classifier(sentence.strip())[0]
+                if result['label'].lower() == 'toxic' and result['score'] >= threshold :
+                    print(f"Warning toxic language detected : {sentence}")
+                    return False
+        
+        else :
+            result = toxicity_classifier(text)[0]
+            if result['label'].lower() == 'texic' and result['score'] >= threshold :
+                print("warning toxic text detected: {text}")
+                return False
+        
+        return True
+    
+    except Exaception as e:
+        print(f"error in detect_toxicity: {str(e)}")
+        return False
 
-        # Bind Python REPL tool
-        tools = [{
-            "name": "python_repl",
-            "description": "Execute Python code to process CSV data using pandas."
-        }]
-        phi4_llm = phi4_llm.bind_tools(tools)
+@action(name="detect_prompt_injection")
+async def detect_prompt_injection(text: str) -> bool :
+    injection_phrases = [
+        "ignore previous instructions",
+        "act as a",
+        "you are a",
+        "system prompt",
+        "bypass",
+        "execute the following",
+        "run this code",
+        "forget everything",
+    ]
 
-        # Create the CSV agent with custom parser
-        csv_agent = create_csv_agent(
-            llm=phi4_llm,
-            path=file_path,
-            verbose=True,
-            allow_dangerous_code=True,  # Required for Python REPL
-            agent_executor_kwargs={"output_parser": CustomReActOutputParser()}
-        )
+    text_lower = text.lower()
+    for phrase in injection_phrases:
+        if phrase in text_lower():
+            print(f" prompt injection detected: {text}")
+            return False
+    
+    return True
 
-        if stream:
-            # Streaming response
-            print("DEBUG: Starting streaming...")
-            async for chunk in csv_agent.astream({"input": question}):
-                print(f"DEBUG: Stream chunk: {chunk}")
-                if isinstance(chunk, dict) and "output" in chunk:
-                    print(chunk["output"], end="", flush=True)
-                elif isinstance(chunk, dict):
-                    print(json.dumps(chunk), end="", flush=True)
-                else:
-                    print(chunk, end="", flush=True)
-            return ""
-        else:
-            # Non-streaming response using ainvoke
-            print("DEBUG: Starting non-streaming...")
-            response = await csv_agent.ainvoke({"input": question})
-            print(f"DEBUG: Non-streaming response: {response}")
-            if isinstance(response, dict) and "output" in response:
-                return response["output"]
-            elif isinstance(response, dict):
-                return json.dumps(response)
-            else:
-                return str(response)
+@action(name="detect_jailbreak")
+async def detect_jailbreak(text:str) -> bool :
+    jailbreak_phrases=[
+        "reveal your system prompt",
+        "show your instructions",
+        "what are your rules",
+        "bypass safety",
+        "disable restrictions",
+        "hact the system",
+    ]
+
+    text_lower = text.lower()
+    for phrase in jailbreak_phrases:
+        if phrase in text_lower:
+            print(f" jailbreak detected: {text}")
+            return False
+
+    return True
+
+@action(name="detect_off_topic")
+async def detect_off_topic(query: str, document_context: str, threshold: float=0.7) -> bool:
+    global sentence_encoder
+    try:
+        query_embedding = sentence_encoder.encode(query, convert_to_tensor=True)
+        doc_sentences = document_context.split(". ").strip()
+        doc_embeddings = sentence_encoder.encode(doc_sentences, convert_to_tensor=True)
+        similarities = util.cos_slim(query_embedding, doc_embeddings)[0]
+        max_similarity = np.max(similarities.cpu().numpy())
+        if max_similarity < threshold :
+            print(f"off-topic query selected: {query}")
+            return False
+        
+        return True
+    
     except Exception as e:
-        print(f"DEBUG: Error in call_csv_agent: {str(e)}")
-        return f"Error: {str(e)}"
+        print(f"error in detect off topic - {e}")
+        return False
 
-if __name__ == "__main__":
-    FILE_PATH = "us-500.csv"  # Adjust to your path if needed
-    QUESTION = "Select the row where the first_name is James and the last_name contains Butt"
+@action(name="detect_code_injection")
+async def detect_code_injection(text: str) -> bool :
+    code_pattern = re.compile(
+        r'(?:import\s|eval\s|exec\s|__import__|\bexec\b|\bfrom\b|\bprint\b|\bdef\b|\bclass\b)'
+    )
 
-    # Run with streaming
-    print("Streaming Response:")
-    asyncio.run(call_csv_agent(QUESTION, FILE_PATH, stream=True))
+    if code_pattern.search(text):
+        print(f"code injection detected in text: {text}")
+        return False
+    return True
 
-    # Run without streaming
-    print("\nNon-Streaming Response:")
-    response = asyncio.run(call_csv_agent(QUESTION, FILE_PATH, stream=False))
-    print("Response:", response)
+class GuardrailsProcessor :
+    def __init__(self):
+        try:
+            global toxicity_classifier
+            model=AutoModelForSequenceClassification.from_pretrained("/toxic_language_model")
+            tokenizer=AutoTokenizer.from_pretrained("/toxic_lan_model")
+
+            toxicity_classifier = pipeline(
+                "text-classification",
+                model=model,
+                tokenizer=tokenizer,
+                device="auto" # for cpu use -1
+            )
+
+            global sentence_encoder
+            sentence_encoder = SentenceTransformer("/all-miniLM-l6-vs",device='cpu')
+
+            colang_content = """
+            define user input
+                $text = $user_message
+                $document_context = $context
+
+            define flow validate_input
+                $toxicity_ok = await detect_toxicity($text)
+                if not $toxicity_ok
+                    bot say "Error : Input contains toxic content."
+                    stop
+                
+                $prompt_injection_ok = await detect_prompt_injection($text)
+                if not $prompt_injection_ok
+                    bot say "Error : Input contains prompt injection attempt."
+                    stop
+                
+                $jailbreak_ok = await detect_jailbreak($text)
+                if not $jailbreak_ok
+                    bot say "Error : Input contains jailbreak attempt."
+                    stop
+                
+                $code_injection_ok = await detect_code_injection($text)
+                if not $code_injection_ok
+                    bot say "Error : Input contains code injection attempt."
+                    stop
+
+            define flow validate_off_topic
+                $off_topic_ok = await detect_off_topic($text, $document_context)
+                if not $off_topic_ok
+                    bot say "Error : Query if off-topic relative to the document context."
+                    stop
+
+            define flow validate_output
+                $toxicity_ok =  await detect_toxicity($text)
+                if not $toxicity_ok
+                    bot say "Error : Output contains toxic content."
+                    stop
+                
+                $code_injection_ok = await detect_code_injection($text)
+                if not $code_injection_ok 
+                    bot say "Error : Output contains code injection attempt."
+                    stop
+            """
+
+            config = RailsConfig.from_content(colang_content=colang_content)
+            self.guardrails = LLMRails(config)
+
+            #Register Custom Actions
+            self.guardrails.register_action(detect_toxicity)  
+            self.guardrails.register_action(detect_prompt_injection) 
+            self.guardrails.register_action(detect_jailbreak) 
+            self.guardrails.register_action(detect_off_topic) 
+            self.guardrails.register_action(detect_code_injection) 
+
+            print("Initialized Nemo Guardrails for input and output validation.")
+
+        except Exaception as e :
+            print("Failed to initialize GuardrailsProcesser: {e}")
+            raise
+        
+    async def validate_input(self, text: str) -> Tuple[bool, str] :
+        try:
+            result = await self.guardrails.generate_async(
+                prompt = text,
+                flows = ["validate_input"],
+                user_message = text
+            )
+                   
+            if "Error : " in result:
+                retrun False , result
+            
+            return True, ""
+
+        except Exaception as e :
+            print(f"Input Failed Nemo Guardrails validation : {str(e)}")
+            retrun False, f"Error : {str(e)}"
+
+    async def validate_off_topic(self, query: str, document_context: str) -> Tuple[bool, str] :
+        try:
+            result = await self.guardrails.generate_async(
+                prompt = query,
+                flows = ["validate_off_topic"],
+                user_message = query,
+                context = document_context
+            )
+
+            if "Error : " in result:
+                retrun False , result
+            
+            return True, ""
+
+        except Exaception as e :
+            print(f"Off-topic validation failed : {str(e)}")
+            retrun False, f"Error : {str(e)}"
+
+    async def validate_output(self, text: str ) -> Tuple[bool, str] :
+        try:
+            result = await self.guardrails.generate_async(
+                prompt = text,
+                flows = ["validate_output"],
+                user_message = text 
+            )
+
+            if "Error : " in result:
+                retrun False , result
+            
+            return True, ""
+
+        except Exaception as e :
+            print(f"Output Failed Nemo Guardrails validation : {str(e)}")
+            retrun False, f"Error : {str(e)}"
+
+    async def process(self, document_context: str, question: str, answer :str) -> Tuple[str, str, str] :
+        doc_valid, doc_error = await self.validate_input(document_context)
+        if not doc_valid:
+            return doc_error, question, answer
+        
+        question_valid, question_error = await self.validate_input(question)
+        if not question_valid:
+            return document_context, question_error, answer
+
+        off_topic_valid, off_topic_error = await self.validate_off_topic(question, document_context)
+        if not off_topic_valid:
+            return document_context, off_topic_error, answer
+
+        answer_valid, answer_error = await self.validate_output(answer)
+        if not answer_valid:
+            return document_context, question, answer
+
+        return document_context, question, answer
+
