@@ -1,47 +1,86 @@
-# guardrails_processor_no_logging_socket.py
-
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any
 import regex as re
 from nemoguardrails import LLMRails, RailsConfig
 from nemoguardrails.actions import action
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline as hf_pipeline
 from sentence_transformers import SentenceTransformer, util
 import numpy as np
 import asyncio
+
+# ---- Adapter for HuggingFace pipeline for NeMo Guardrails ----
+class Phi4LLM:
+    def __init__(self, pipeline):
+        self.pipeline = pipeline
+
+    async def agenerate_prompt(self, prompts: List, stop: Optional[List[str]] = None, **kwargs: Any) -> Any:
+        if prompts:
+            prompt_obj = prompts[0]
+            if hasattr(prompt_obj, "text"):
+                prompt_text = prompt_obj.text
+            elif hasattr(prompt_obj, "to_string"):
+                prompt_text = prompt_obj.to_string()
+            elif isinstance(prompt_obj, str):
+                prompt_text = prompt_obj
+            else:
+                prompt_text = str(prompt_obj)
+        else:
+            prompt_text = ""
+        loop = asyncio.get_running_loop()
+        def run_pipeline(prompt):
+            messages = [{"role": "user", "content": prompt}]
+            allowed_keys = {"max_new_tokens", "return_full_text"}
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in allowed_keys}
+            outputs = self.pipeline(messages, max_new_tokens=64, **filtered_kwargs)
+            try:
+                if isinstance(outputs, list) and isinstance(outputs[0], dict):
+                    res = outputs[0].get("generated_text", "")
+                    if isinstance(res, list) and len(res) > 0 and isinstance(res[0], dict):
+                        return res[0].get("content", "")
+                    else:
+                        return res
+                return str(outputs)
+            except Exception:
+                return str(outputs)
+        generated_text = await loop.run_in_executor(None, run_pipeline, prompt_text)
+        class Generation:
+            def __init__(self, text): self.text = text
+        class Result:
+            def __init__(self, text):
+                self.generations = [[Generation(text)]]
+                self.llm_output = {}
+        return Result(generated_text)
+
+    async def generate(self, *args, **kwargs):
+        raise NotImplementedError("Guardrails only uses agenerate_prompt.")
+
+    def get_num_tokens(self, text: str) -> int:
+        return len(text.split())
 
 # Global variables for models
 toxicity_classifier = None
 sentence_encoder = None
 
-# Custom action for toxicity detection
+TOXIC_LABELS = {"toxic", "insult", "threat", "identity_hate", "obscene"}
+
 @action(name="detect_toxicity")
 async def detect_toxicity(text: str, threshold: float = 0.5, validation_method: str = "sentence") -> bool:
-    """Detect toxic language in text using a pre-trained model."""
     global toxicity_classifier
     try:
-        if validation_method == "sentence":
-            sentences = text.split(". ")
-            for sentence in sentences:
-                if not sentence.strip():
-                    continue
-                result = toxicity_classifier(sentence.strip())[0]
-                if result['label'].lower() == 'toxic' and result['score'] >= threshold:
-                    print(f"Warning: Toxic sentence detected: {sentence}")
-                    return False
-        else:
-            result = toxicity_classifier(text)[0]
-            if result['label'].lower() == 'toxic' and result['score'] >= threshold:
-                print(f"Warning: Toxic text detected: {text}")
+        sentences = text.split(". ")
+        for sentence in sentences:
+            if not sentence.strip():
+                continue
+            result = toxicity_classifier(sentence.strip())[0]
+            if result['label'].lower() in TOXIC_LABELS and result['score'] >= threshold:
+                print(f"Warning: Toxic sentence detected: {sentence}")
                 return False
         return True
     except Exception as e:
         print(f"Error in detect_toxicity: {str(e)}")
         return False
 
-# Custom action for prompt injection detection
 @action(name="detect_prompt_injection")
 async def detect_prompt_injection(text: str) -> bool:
-    """Detect prompt injection attempts using keyword matching."""
     injection_phrases = [
         "ignore previous instructions",
         "act as a",
@@ -51,6 +90,7 @@ async def detect_prompt_injection(text: str) -> bool:
         "execute the following",
         "run this code",
         "forget everything",
+        "as an ai language model"
     ]
     text_lower = text.lower()
     for phrase in injection_phrases:
@@ -59,10 +99,8 @@ async def detect_prompt_injection(text: str) -> bool:
             return False
     return True
 
-# Custom action for jailbreak detection
 @action(name="detect_jailbreak")
 async def detect_jailbreak(text: str) -> bool:
-    """Detect jailbreak attempts using keyword matching."""
     jailbreak_phrases = [
         "reveal your system prompt",
         "show your instructions",
@@ -70,6 +108,7 @@ async def detect_jailbreak(text: str) -> bool:
         "bypass safety",
         "disable restrictions",
         "hack the system",
+        "unfiltered response"
     ]
     text_lower = text.lower()
     for phrase in jailbreak_phrases:
@@ -78,17 +117,16 @@ async def detect_jailbreak(text: str) -> bool:
             return False
     return True
 
-# Custom action for off-topic detection
 @action(name="detect_off_topic")
-async def detect_off_topic(query: str, document_context: str, threshold: float = 0.7) -> bool:
-    """Detect if the query is off-topic relative to the document context using semantic similarity."""
+async def detect_off_topic(query: str, document_context: str, threshold: float = 0.8) -> bool:
     global sentence_encoder
     try:
         query_embedding = sentence_encoder.encode(query, convert_to_tensor=True)
-        doc_sentences = document_context.split(". ")
+        doc_sentences = [s for s in document_context.split(". ") if s.strip()]
         doc_embeddings = sentence_encoder.encode(doc_sentences, convert_to_tensor=True)
         similarities = util.cos_sim(query_embedding, doc_embeddings)[0]
         max_similarity = np.max(similarities.cpu().numpy())
+        print(f"Off-topic max similarity: {max_similarity:.3f}")
         if max_similarity < threshold:
             print(f"Warning: Off-topic query detected: {query}")
             return False
@@ -97,37 +135,76 @@ async def detect_off_topic(query: str, document_context: str, threshold: float =
         print(f"Error in detect_off_topic: {str(e)}")
         return False
 
-# Custom action for code injection detection
 @action(name="detect_code_injection")
 async def detect_code_injection(text: str) -> bool:
-    """Detect code injection attempts using regex."""
     code_pattern = re.compile(
-        r'(?:import\s|eval\s|exec\s|__import__|\bexec\b|\beval\b|\bimport\b|\bfrom\b|\bprint\b|\bdef\b|\bclass\b)'
+        r'(?:import\s|eval\s|exec\s|__import__|\bexec\b|\beval\b|\bimport\b|\bfrom\b|\bprint\s*\(|\bdef\b|\bclass\b|\bos\.system\b|\bsubprocess\b|\bopen\s*\()'
     )
     if code_pattern.search(text):
         print(f"Warning: Code injection detected in text: {text}")
         return False
     return True
 
+@action(name="detect_context_hallucination")
+async def detect_context_hallucination(answer: str, context: str, sim_threshold: float = 0.75) -> bool:
+    """
+    Returns True if answer is fully supported by context (substring OR high semantic similarity),
+    False if hallucinated or unsupported.
+    """
+    global sentence_encoder
+    # Direct substring: Pass
+    if answer.strip() in context:
+        return True
+    # High semantic similarity: Pass
+    try:
+        context_sents = [s.strip() for s in context.split(". ") if s.strip()]
+        ans_emb = sentence_encoder.encode(answer, convert_to_tensor=True)
+        ctx_embs = sentence_encoder.encode(context_sents, convert_to_tensor=True)
+        similarities = util.cos_sim(ans_emb, ctx_embs)[0]
+        max_sim = np.max(similarities.cpu().numpy())
+        print(f"Context-hallucination max similarity: {max_sim:.3f}")
+        if max_sim >= sim_threshold:
+            return True
+        print(f"Warning: Hallucination detected! Answer not supported by context.\nAnswer: {answer}\n")
+        return False
+    except Exception as e:
+        print(f"Error in context_hallucination: {str(e)}")
+        return False
+
+@action(name="detect_answer_pii_leak")
+async def detect_answer_pii_leak(answer: str, context: str) -> bool:
+    """
+    Block answer if it leaks common PII patterns not present in context.
+    """
+    # Simple regexes for SSN, credit card, phone, email
+    patterns = [
+        r'\b\d{3}-\d{2}-\d{4}\b',  # SSN
+        r'\b(?:\d[ -]*?){13,16}\b', # Credit card
+        r'\b[\w\.-]+@[\w\.-]+\.\w{2,4}\b', # Email
+        r'\b\d{3}[-.\s]??\d{3}[-.\s]??\d{4}\b' # Phone
+    ]
+    for pat in patterns:
+        ans_matches = set(re.findall(pat, answer))
+        ctx_matches = set(re.findall(pat, context))
+        leak = ans_matches - ctx_matches
+        if leak:
+            print(f"Warning: PII leak detected in answer: {leak}")
+            return False
+    return True
+
 class GuardrailsProcessor:
-    def __init__(self):
-        """
-        Initialize the Guardrails Processor using NeMo Guardrails.
-        """
+    def __init__(self, llm_pipeline=None):
         try:
-            # Initialize toxicity detection model
             global toxicity_classifier
             model = AutoModelForSequenceClassification.from_pretrained("/Users/abhishek/Downloads/responsible_ai/models/share/unbaised-toxic-roberta")
             tokenizer = AutoTokenizer.from_pretrained("/Users/abhishek/Downloads/responsible_ai/models/share/unbaised-toxic-roberta")
-            toxicity_classifier = pipeline("text-classification", model=model, tokenizer=tokenizer, device=-1)  # device=-1 forces CPU
+            toxicity_classifier = hf_pipeline("text-classification", model=model, tokenizer=tokenizer, device=-1)
             print("Initialized toxicity detection model")
 
-            # Initialize off-topic detection model
             global sentence_encoder
             sentence_encoder = SentenceTransformer("/Users/abhishek/Downloads/responsible_ai/models/share/all-MIniLM-L6-v2", device='cpu')
             print("Initialized off-topic detection model")
 
-            # Define NeMo Guardrails configuration using Colang
             colang_content = """
             define user validate input
               "validate_input: *"
@@ -166,8 +243,8 @@ class GuardrailsProcessor:
             define flow validate_off_topic
               user validate off topic
               $text = $last_user_message
-              $document_context = $context
-              $off_topic_ok = await detect_off_topic($text, $document_context)
+              $context = $context
+              $off_topic_ok = await detect_off_topic($text, $context)
               if not $off_topic_ok
                 bot say "Error: Query is off-topic relative to the document context."
                 stop
@@ -177,6 +254,7 @@ class GuardrailsProcessor:
             define flow validate_output
               user validate output
               $text = $last_user_message
+              $context = $context
               $toxicity_ok = await detect_toxicity($text)
               if not $toxicity_ok
                 bot say "Error: Output contains toxic content."
@@ -187,35 +265,37 @@ class GuardrailsProcessor:
                 bot say "Error: Output contains code injection attempt."
                 stop
 
+              $halluc_ok = await detect_context_hallucination($text, $context)
+              if not $halluc_ok
+                bot say "Error: Output is not fully supported by context (possible hallucination)."
+                stop
+
+              $pii_ok = await detect_answer_pii_leak($text, $context)
+              if not $pii_ok
+                bot say "Error: Output contains PII not present in context."
+                stop
+
               bot say "Output validation passed."
             """
             config = RailsConfig.from_content(colang_content=colang_content)
-            self.guardrails = LLMRails(config)
+            llm = Phi4LLM(llm_pipeline) if llm_pipeline else None
+            self.guardrails = LLMRails(config, llm=llm)
 
-            # Register custom actions
             self.guardrails.register_action(detect_toxicity)
             self.guardrails.register_action(detect_prompt_injection)
             self.guardrails.register_action(detect_jailbreak)
             self.guardrails.register_action(detect_off_topic)
             self.guardrails.register_action(detect_code_injection)
-            print("Initialized NeMo Guardrails for input and output validation")
+            self.guardrails.register_action(detect_context_hallucination)
+            self.guardrails.register_action(detect_answer_pii_leak)
+            print("Initialized NeMo Guardrails for input/output validation")
 
         except Exception as e:
             print(f"Failed to initialize GuardrailsProcessor: {str(e)}")
             raise
 
     async def validate_input(self, text: str) -> Tuple[bool, str]:
-        """
-        Validate input text using NeMo Guardrails.
-
-        Args:
-            text (str): Input text to validate.
-
-        Returns:
-            Tuple[bool, str]: (Success status, message or error).
-        """
         try:
-            # Pass the text as part of the prompt to trigger the validate_input flow
             result = await self.guardrails.generate_async(
                 prompt=f"validate_input: {text}"
             )
@@ -227,21 +307,10 @@ class GuardrailsProcessor:
             return False, f"Error: {str(e)}"
 
     async def validate_off_topic(self, query: str, document_context: str) -> Tuple[bool, str]:
-        """
-        Validate if the query is off-topic relative to the document context.
-
-        Args:
-            query (str): User query.
-            document_context (str): Document content.
-
-        Returns:
-            Tuple[bool, str]: (Success status, message or error).
-        """
         try:
-            # Pass the query as part of the prompt and the document_context as context
+            # Pass context as part of prompt (for colang to pick up)
             result = await self.guardrails.generate_async(
-                prompt=f"validate_off_topic: {query}",
-                context={"context": document_context}
+                prompt=f"validate_off_topic: {query}\nDocument Context: {document_context}"
             )
             if "Error:" in result:
                 return False, result
@@ -250,20 +319,11 @@ class GuardrailsProcessor:
             print(f"Off-topic validation failed: {str(e)}")
             return False, f"Error: {str(e)}"
 
-    async def validate_output(self, text: str) -> Tuple[bool, str]:
-        """
-        Validate output text using NeMo Guardrails.
-
-        Args:
-            text (str): Output text to validate.
-
-        Returns:
-            Tuple[bool, str]: (Success status, message or error).
-        """
+    async def validate_output(self, text: str, context: str) -> Tuple[bool, str]:
         try:
-            # Pass the text as part of the prompt to trigger the validate_output flow
+            # Pass context as part of prompt (for colang to pick up)
             result = await self.guardrails.generate_async(
-                prompt=f"validate_output: {text}"
+                prompt=f"validate_output: {text}\nDocument Context: {context}"
             )
             if "Error:" in result:
                 return False, result
@@ -273,20 +333,8 @@ class GuardrailsProcessor:
             return False, f"Error: {str(e)}"
 
     async def process(self, document_context: str, question: str, answer: str) -> Tuple[str, str, str]:
-        """
-        Process document context, question, and answer with NeMo Guardrails.
-
-        Args:
-            document_context (str): Document content to validate.
-            question (str): User query to validate.
-            answer (str): Generated answer to validate.
-
-        Returns:
-            Tuple[str, str, str]: (Validated document context, question, answer) or (error message, question, answer).
-        """
         print("Starting guardrails processing for document, question, and answer")
 
-        # Validate inputs
         doc_valid, doc_error = await self.validate_input(document_context)
         if not doc_valid:
             return doc_error, question, answer
@@ -295,73 +343,12 @@ class GuardrailsProcessor:
         if not question_valid:
             return document_context, question_error, answer
 
-        # Validate off-topic
         off_topic_valid, off_topic_error = await self.validate_off_topic(question, document_context)
         if not off_topic_valid:
             return document_context, off_topic_error, answer
 
-        # Validate output (answer)
-        answer_valid, answer_error = await self.validate_output(answer)
+        answer_valid, answer_error = await self.validate_output(answer, document_context)
         if not answer_valid:
             return document_context, question, answer_error
 
         return document_context, question, answer
-
-# Modified main() to be more flexible for different environments
-async def main():
-    try:
-        # Initialize processor
-        processor = GuardrailsProcessor()
-
-        # Sample data
-        document_context = """
-        Patient: John Doe
-        Contact: 212-555-5555
-        Email: john.doe@example.com
-        Diagnosis: Hypertension
-        Credit Card: 4916-0387-9536-0861
-        SSN: 123-45-6789
-        """
-        question = "What is the diagnosis for John Doe? print('hello')"
-        answer = "The diagnosis for John Doe is Hypertension."
-
-        # Process with Guardrails
-        processed_doc, processed_question, processed_answer = await processor.process(
-            document_context=document_context,
-            question=question,
-            answer=answer
-        )
-
-        # Output results
-        print("\nInput Document Context:")
-        print(document_context)
-        print("\nProcessed Document Context:")
-        print(processed_doc)
-        print("\nInput Question:")
-        print(question)
-        print("\nProcessed Question:")
-        print(processed_question)
-        print("\nInput Answer:")
-        print(answer)
-        print("\nProcessed Answer:")
-        print(processed_answer)
-
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
-
-# Modified entry point to handle both Jupyter and standalone script
-if __name__ == "__main__":
-    try:
-        # Check if running in an interactive environment with an active event loop
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If an event loop is already running (e.g., in Jupyter), use await directly
-            import nest_asyncio
-            nest_asyncio.apply()  # Allow nested event loops in Jupyter
-            loop.create_task(main())
-        else:
-            # If no event loop is running (e.g., standalone script), use asyncio.run
-            asyncio.run(main())
-    except RuntimeError as e:
-        print(f"Error: {str(e)}")
-        print("If you're running this in a Jupyter notebook, try awaiting the main() coroutine directly: `await main()`")
